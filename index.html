@@ -97,13 +97,17 @@
       <!-- User Input Area -->
       <div class="chat-input-area">
         <div class="input-wrapper">
-          <textarea id="chatInput" class="chat-input" placeholder="오늘 있었던 일을 편하게 적어보세요. (예: 오늘 친구와 [맛집]에 갔다.)" disabled></textarea>
+          <textarea id="chatInput" class="chat-input" placeholder="오늘 있었던 일을 편하게 적어보세요. (예: 오늘 친구와 '맛집'에 갔다.)" disabled></textarea>
+          <button id="btnMicLang" class="btn-mic-lang" disabled title="음성 인식 언어 변경">KO</button>
+          <button id="btnMic" class="btn-mic" disabled title="음성 인식 시작/중지">
+            <i data-lucide="mic" style="width: 18px; height: 18px;"></i>
+          </button>
           <button id="btnSend" class="btn-send" disabled>
             <i data-lucide="send" style="width: 18px; height: 18px;"></i>
           </button>
         </div>
         <div class="input-hint">
-          * 모르는 단어는 한국어로 적어주시거나, 명시적으로 <strong>[단어]</strong> 형태로 감싸서 작성해보세요.
+          * 모르는 단어는 한국어로 적어주시거나, 명시적으로 <strong>'단어'</strong> 또는 <strong>&quot;단어&quot;</strong> 형태로 감싸서 작성해보세요.
         </div>
       </div>
     </main>
@@ -121,6 +125,28 @@
       </div>
       <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">대화 중 나온 한국어 표현과 매칭 단어가 이곳에 실시간 누적됩니다.</p>
       
+      <!-- Real-time Translator Panel -->
+      <div class="translator-panel">
+        <div class="translator-header">
+          <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <i data-lucide="languages" style="color: var(--accent-color); width: 16px; height: 16px;"></i>
+            <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary);">실시간 번역기</span>
+          </div>
+          <select id="translateDirection" class="translator-select">
+            <option value="ko-to-target">한 ➡️ 영 (KO to EN)</option>
+            <option value="target-to-ko">영 ➡️ 한 (EN to KO)</option>
+          </select>
+        </div>
+        <textarea id="translatorInput" class="translator-input" placeholder="번역할 내용을 입력하세요..."></textarea>
+        <button id="btnTranslate" class="btn-translate">번역하기</button>
+        <div id="translatorResultContainer" class="translator-result-container" style="display: none;">
+          <div id="translatorResult" class="translator-result"></div>
+          <button id="btnTranslateTts" class="btn-icon-small" title="번역 결과 듣기">
+            <i data-lucide="volume-2" style="width: 14px; height: 14px;"></i>
+          </button>
+        </div>
+      </div>
+
       <div id="vocabList" class="vocab-list">
         <div class="vocab-empty">
           대화에 참여하면 자동으로 단어가 정리됩니다.

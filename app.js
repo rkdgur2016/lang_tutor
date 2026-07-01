@@ -5,6 +5,11 @@ let vocabularyCache = []; // Live cache for vocab items
 let isBackendConnected = false; // Check if backend is active
 let totalSessionTokens = 0; // Active session token accumulator
 
+// Speech Recognition State
+let recognition = null;
+let isRecording = false;
+let micLanguage = 'ko-KR'; // Default to Korean for voice input
+
 // Dom Elements
 const currentLangTitle = document.getElementById('currentLangTitle');
 const currentLangDesc = document.getElementById('currentLangDesc');
@@ -33,22 +38,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize Lucide Icons
   lucide.createIcons();
   
-  // Load API Key
-  loadApiKey();
-
   // Check if we are running from the backend server
   await checkBackendStatus();
+
+  // Load API Key
+  await loadApiKey();
 
   // Load language settings & initial messages
   switchLanguage(currentLang);
 
   // Setup Event Listeners
   setupEventListeners();
+
+  // Initialize Speech Recognition support check
+  initSpeechRecognition();
 });
 
-// Load API Key from localStorage
-function loadApiKey() {
-  const savedKey = localStorage.getItem('lingotutor_gemini_key');
+// Load API Key from localStorage or Server
+async function loadApiKey() {
+  let savedKey = localStorage.getItem('lingotutor_gemini_key');
+  
+  if (!savedKey && isBackendConnected) {
+    try {
+      const res = await fetch('/api/key');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.apiKey) {
+          savedKey = data.apiKey;
+          localStorage.setItem('lingotutor_gemini_key', savedKey);
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to fetch API key from server", e);
+    }
+  }
+
   if (savedKey) {
     apiKeyState = savedKey;
     apiKeyInput.value = savedKey;
@@ -78,14 +102,23 @@ async function checkBackendStatus() {
 
 // Enable/Disable chat text area and send button
 function enableChatInput(enable) {
+  const btnMic = document.getElementById('btnMic');
+  const btnMicLang = document.getElementById('btnMicLang');
+
   if (enable) {
     chatInput.removeAttribute('disabled');
-    chatInput.placeholder = "오늘 있었던 일을 편하게 적어보세요. (예: 오늘 친구와 [맛집]에 갔다.)";
+    chatInput.placeholder = currentLang === 'en' 
+      ? "오늘 있었던 일을 적어보세요. (예: 오늘 친구와 '맛집'에 갔다.)" 
+      : "오늘 있었던 일을 적어보세요. (예: 오늘 '점심'으로 라면을 먹었다.)";
     btnSend.removeAttribute('disabled');
+    if (btnMic) btnMic.removeAttribute('disabled');
+    if (btnMicLang) btnMicLang.removeAttribute('disabled');
   } else {
     chatInput.setAttribute('disabled', 'true');
     chatInput.placeholder = "API 키를 먼저 등록해 주세요.";
     btnSend.setAttribute('disabled', 'true');
+    if (btnMic) btnMic.setAttribute('disabled', 'true');
+    if (btnMicLang) btnMicLang.setAttribute('disabled', 'true');
   }
 }
 
@@ -144,6 +177,74 @@ function setupEventListeners() {
     }
   });
 
+  // Microphone events
+  const btnMic = document.getElementById('btnMic');
+  const btnMicLang = document.getElementById('btnMicLang');
+  if (btnMic) {
+    btnMic.addEventListener('click', () => {
+      if (isRecording) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
+    });
+  }
+  if (btnMicLang) {
+    btnMicLang.addEventListener('click', () => {
+      toggleMicLanguage();
+    });
+  }
+
+  // Translator Event
+  const btnTranslate = document.getElementById('btnTranslate');
+  const translatorInput = document.getElementById('translatorInput');
+  const translatorResult = document.getElementById('translatorResult');
+  const translateDirection = document.getElementById('translateDirection');
+
+  const translatorResultContainer = document.getElementById('translatorResultContainer');
+  const btnTranslateTts = document.getElementById('btnTranslateTts');
+
+  if (btnTranslate) {
+    btnTranslate.addEventListener('click', async () => {
+      const text = translatorInput.value.trim();
+      if (!text) {
+        showSystemAlert("번역할 텍스트를 입력해 주세요.", "warning");
+        return;
+      }
+
+      btnTranslate.innerText = "번역 중...";
+      btnTranslate.setAttribute('disabled', 'true');
+      translatorInput.setAttribute('disabled', 'true');
+      if (translatorResultContainer) translatorResultContainer.style.display = 'none';
+
+      try {
+        const direction = translateDirection.value;
+        const result = await callFreeTranslateApi(text, direction);
+        translatorResult.innerText = result;
+        if (translatorResultContainer) translatorResultContainer.style.display = 'flex';
+      } catch (err) {
+        console.error(err);
+        showSystemAlert(`번역 에러: ${err.message}`, "error");
+      } finally {
+        btnTranslate.innerText = "번역하기";
+        btnTranslate.removeAttribute('disabled');
+        translatorInput.removeAttribute('disabled');
+      }
+    });
+  }
+
+  if (btnTranslateTts) {
+    btnTranslateTts.addEventListener('click', () => {
+      const resultText = translatorResult.innerText.trim();
+      if (!resultText) return;
+
+      const direction = translateDirection.value;
+      const targetLangCode = direction === 'ko-to-target' ? currentLang : 'ko';
+
+      playTts(resultText, targetLangCode);
+    });
+  }
+
   // Clear chat history
   btnClearChat.addEventListener('click', () => {
     if (confirm("현재 언어의 모든 대화 기록과 단어장이 초기화됩니다. 계속하시겠습니까?")) {
@@ -173,11 +274,34 @@ async function switchLanguage(lang) {
   if (lang === 'en') {
     currentLangTitle.innerText = "영어 학습 모드 (English)";
     currentLangDesc.innerText = "오늘 있었던 일이나 하고 싶은 이야기를 자유롭게 영어와 한국어를 섞어가며 일기처럼 써보세요.";
-    chatInput.placeholder = "오늘 있었던 일을 적어보세요. (예: 오늘 [공원]을 산책했다.)";
+    chatInput.placeholder = "오늘 있었던 일을 적어보세요. (예: 오늘 친구와 '맛집'에 갔다.)";
   } else if (lang === 'ja') {
     currentLangTitle.innerText = "일본어 학습 모드 (日本語)";
     currentLangDesc.innerText = "오늘 있었던 일이나 하고 싶은 이야기를 자유롭게 일본어와 한국어를 섞어가며 일기처럼 써보세요.";
-    chatInput.placeholder = "오늘 있었던 일을 적어보세요. (예: 오늘 [점심]으로 라면을 먹었다.)";
+    chatInput.placeholder = "오늘 있었던 일을 적어보세요. (예: 오늘 친구와 '맛집'에 갔다.)";
+  }
+
+  // Update microphone elements when switching language
+  const btnMicLang = document.getElementById('btnMicLang');
+  if (btnMicLang) {
+    micLanguage = 'ko-KR';
+    btnMicLang.innerText = 'KO';
+  }
+
+  // Update translation options in dropdown
+  const translateDirection = document.getElementById('translateDirection');
+  if (translateDirection) {
+    if (lang === 'en') {
+      translateDirection.innerHTML = `
+        <option value="ko-to-target">한 ➡️ 영 (KO to EN)</option>
+        <option value="target-to-ko">영 ➡️ 한 (EN to KO)</option>
+      `;
+    } else {
+      translateDirection.innerHTML = `
+        <option value="ko-to-target">한 ➡️ 일 (KO to JA)</option>
+        <option value="target-to-ko">일 ➡️ 한 (JA to KO)</option>
+      `;
+    }
   }
 
   // Load chat history & load vocabularies
@@ -598,14 +722,14 @@ function getSystemPrompt() {
   if (currentLang === 'en') {
     return `You are a friendly, highly supportive English language tutor named LingoTutor. 
 The user is learning English. They will write their daily diary entries or describe what they did today.
-Sometimes they will put Korean words they don't know in brackets like '[사과]' or naturally mix Korean words in their sentences because they don't know the English equivalent.
+Sometimes they will put Korean words/sentences they don't know in single quotes like '사과', double quotes like "사과", brackets like '[사과]', or naturally mix Korean words in their sentences because they don't know the English equivalent.
 
 Your tasks are:
 1. Respond to the user naturally in friendly English. Keep your reply simple, supportive, and active. You MUST always end your response with an engaging, friendly follow-up question related to the user's topic so that the conversation continues naturally.
 2. Provide a Korean translation of your English response (reply) so the user can crosscheck if they cannot understand.
-3. Look at their input. If there are grammatical errors, typos, or unnatural phrasing, provide corrections. Break down the user's sentence, explain the error gently in Korean, and provide a corrected natural English sentence.
-4. Automatically translate any Korean words (whether they are in brackets like [단어] or naturally written in the text) into English. Provide:
-   - "korean": The original Korean word
+3. Look at their input. If there are grammatical errors, typos, unnatural phrasing, or if they have written Korean words/sentences wrapped in quotes (' ' or " ") because they don't know them, you MUST provide corrections. Even if the rest of the sentence is grammatically correct, treat any sentence containing quoted Korean words as needing correction. For each quoted Korean expression, you MUST explain in the "explanation" field: "'[한글 표현]'은(는) 영어로 '[영어 번역 표현]'라고 표현합니다." (e.g., "'맛집'은 영어로 'popular restaurant' 또는 'famous restaurant'라고 표현합니다.")
+4. Automatically translate any Korean words (whether they are in single quotes like '단어', double quotes like "단어", brackets like [단어], or naturally written in the text) into English. Provide:
+   - "korean": The original Korean word (remove quotes or brackets if present, e.g., '사과' -> 사과)
    - "translated": The translated English word/phrase
    - "pronunciation": A Korean phonetic pronunciation guide (e.g., Apple is [애플], Walk is [워크])
    - "example": A simple English example sentence using the translated word
@@ -617,9 +741,9 @@ JSON Schema:
   "translation": "Literal Korean translation of your English reply",
   "corrections": [
     {
-      "original": "unnatural or incorrect sentence from user",
-      "corrected": "corrected English sentence",
-      "explanation": "Brief explanation of the correction in Korean"
+      "original": "unnatural or incorrect sentence from user (including the Korean words in quotes)",
+      "corrected": "corrected English sentence with the Korean words translated",
+      "explanation": "Detailed explanation of the correction and translations in Korean (e.g., \"'맛집'은 영어로 'popular restaurant'라고 표현합니다. ...\")"
     }
   ],
   "vocabulary": [
@@ -633,15 +757,19 @@ JSON Schema:
 }`;
   } else {
     return `You are a friendly, highly supportive Japanese language tutor named LingoTutor. 
-The user is learning Japanese. They will write their daily diary entries or describe what they did today.
-Sometimes they will put Korean words they don't know in brackets like '[사과]' or naturally mix Korean words in their sentences because they don't know the Japanese equivalent.
+The user is learning Japanese specifically to practice spoken Japanese conversation (일본어 회화).
+They will write their daily diary entries or describe what they did today.
+Sometimes they will put Korean words/sentences they don't know in single quotes like '사과', double quotes like "사과", brackets like '[사과]', or naturally mix Korean words in their sentences because they don't know the Japanese equivalent.
 
 Your tasks are:
 1. Respond to the user naturally in polite, friendly Japanese (using polite forms: です/ます). Keep your reply simple, natural, and friendly. You MUST always end your response with an engaging, easy-to-answer follow-up question in Japanese so that the user is encouraged to reply back and keep the conversation going.
 2. Provide a Korean translation of your Japanese response (reply) so the user can crosscheck if they cannot understand.
-3. Look at their input. If there are grammatical errors, typos, or unnatural phrasing, provide corrections. Break down the user's sentence, explain the error gently in Korean, and provide a corrected natural Japanese sentence.
-4. Automatically translate any Korean words (whether they are in brackets like [단어] or naturally written in the text) into Japanese. Provide:
-   - "korean": The original Korean word
+3. Look at their input. If there are grammatical errors, typos, unnatural/stiff/textbook phrasing, or if they have written Korean words/sentences wrapped in quotes (' ' or " ") because they don't know them, you MUST provide corrections. Even if the user's sentence is grammatically correct, if it sounds textbookish, stiff, or unnatural for daily conversation, correct it to natural daily-life conversational expressions that native Japanese speakers actually use (일본인들이 일상생활에서 실제로 사용하는 자연스럽고 구어체적인 회화 표현). For each correction, explain in the "explanation" field in Korean:
+   - Why the original was unnatural or textbookish.
+   - The nuances of the suggested daily-life conversational expression.
+   - For quoted Korean words: "'[한글 표현]'은(는) 일본어 일상 회화에서 '[일본어 번역 표현]'라고 표현합니다." (e.g., "'점심'은 일본어로 'お昼(ひる)' 또는 'ランチ'라고 표현합니다.")
+4. Automatically translate any Korean words (whether they are in single quotes like '단어', double quotes like "단어", brackets like [단어], or naturally written in the text) into Japanese. Provide:
+   - "korean": The original Korean word (remove quotes or brackets if present, e.g., '사과' -> 사과)
    - "translated": The translated Japanese word (using appropriate Kanji/Kana)
    - "pronunciation": The Furigana (Hiragana) and its Korean phonetic spelling (e.g., りんご [링고], さんぽ [산포])
    - "example": A simple Japanese example sentence using the translated word. (Include Hiragana reading inside parentheses for Kanji, like "公園(こうえん)을 散歩(さんぽ)しました")
@@ -653,9 +781,9 @@ JSON Schema:
   "translation": "Literal Korean translation of your Japanese reply",
   "corrections": [
     {
-      "original": "unnatural or incorrect sentence from user",
-      "corrected": "corrected Japanese sentence",
-      "explanation": "Brief explanation of the correction in Korean"
+      "original": "unnatural, stiff, textbookish, or incorrect sentence from user (including the Korean words in quotes)",
+      "corrected": "corrected natural daily-life conversational Japanese sentence",
+      "explanation": "Detailed explanation of why the correction is more natural in daily conversation, and translations in Korean (e.g., \"이 표현은 문법적으로는 맞지만, 일본인들이 일상 회화에서는 'お昼'나 'ランチ'라는 표현을 훨씬 더 자주 씁니다. ...\")"
     }
   ],
   "vocabulary": [
@@ -836,6 +964,8 @@ function playTts(text, langCode) {
     utterance.lang = 'en-US';
   } else if (langCode === 'ja') {
     utterance.lang = 'ja-JP';
+  } else if (langCode === 'ko') {
+    utterance.lang = 'ko-KR';
   }
 
   // Load and search voices
@@ -980,5 +1110,161 @@ function handleDownloadChat() {
   } catch (err) {
     showSystemAlert("백업 파일 생성에 실패했습니다.", "error");
     console.error(err);
+  }
+}
+
+// Speech Recognition (STT) Functions
+function initSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn("Speech Recognition API is not supported in this browser.");
+    const btnMic = document.getElementById('btnMic');
+    const btnMicLang = document.getElementById('btnMicLang');
+    if (btnMic) btnMic.style.display = 'none';
+    if (btnMicLang) btnMicLang.style.display = 'none';
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = micLanguage;
+
+  recognition.onstart = () => {
+    isRecording = true;
+    const btnMic = document.getElementById('btnMic');
+    if (btnMic) {
+      btnMic.classList.add('recording');
+      btnMic.innerHTML = `<i data-lucide="mic-off" style="width: 18px; height: 18px;"></i>`;
+      lucide.createIcons();
+    }
+    const currentLangText = micLanguage === 'ko-KR' ? '한국어' : (currentLang === 'en' ? '영어' : '일본어');
+    showSystemAlert(`음성 인식을 시작합니다 (${currentLangText}). 말씀해 주세요.`, "success");
+  };
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    if (transcript) {
+      const startPos = chatInput.selectionStart;
+      const endPos = chatInput.selectionEnd;
+      const originalText = chatInput.value;
+      
+      const newText = originalText.substring(0, startPos) + transcript + originalText.substring(endPos);
+      chatInput.value = newText;
+      
+      // Auto resize textarea
+      chatInput.style.height = 'auto';
+      chatInput.style.height = chatInput.scrollHeight + 'px';
+      
+      chatInput.selectionStart = chatInput.selectionEnd = startPos + transcript.length;
+      chatInput.focus();
+    }
+  };
+
+  recognition.onerror = (event) => {
+    console.error("Speech recognition error:", event.error);
+    if (event.error === 'not-allowed') {
+      showSystemAlert("마이크 사용 권한이 거부되었습니다. 브라우저 설정에서 권한을 허용해 주세요.", "error");
+    } else if (event.error !== 'no-speech') {
+      showSystemAlert(`음성 인식 오류: ${event.error}`, "error");
+    }
+    stopRecording();
+  };
+
+  recognition.onend = () => {
+    stopRecording();
+  };
+}
+
+function startRecording() {
+  if (!recognition) {
+    initSpeechRecognition();
+  }
+  if (!recognition) return;
+
+  recognition.lang = micLanguage;
+  try {
+    recognition.start();
+  } catch (err) {
+    console.error("Failed to start speech recognition:", err);
+  }
+}
+
+function stopRecording() {
+  isRecording = false;
+  const btnMic = document.getElementById('btnMic');
+  if (btnMic) {
+    btnMic.classList.remove('recording');
+    btnMic.innerHTML = `<i data-lucide="mic" style="width: 18px; height: 18px;"></i>`;
+    lucide.createIcons();
+  }
+  if (recognition) {
+    try {
+      recognition.stop();
+    } catch (e) {
+      // already stopped
+    }
+  }
+}
+
+function toggleMicLanguage() {
+  const btnMicLang = document.getElementById('btnMicLang');
+  if (!btnMicLang) return;
+
+  if (currentLang === 'en') {
+    if (micLanguage === 'ko-KR') {
+      micLanguage = 'en-US';
+      btnMicLang.innerText = 'EN';
+      showSystemAlert("음성 인식 언어가 영어(US)로 설정되었습니다.", "success");
+    } else {
+      micLanguage = 'ko-KR';
+      btnMicLang.innerText = 'KO';
+      showSystemAlert("음성 인식 언어가 한국어로 설정되었습니다.", "success");
+    }
+  } else if (currentLang === 'ja') {
+    if (micLanguage === 'ko-KR') {
+      micLanguage = 'ja-JP';
+      btnMicLang.innerText = 'JA';
+      showSystemAlert("음성 인식 언어가 일본어로 설정되었습니다.", "success");
+    } else {
+      micLanguage = 'ko-KR';
+      btnMicLang.innerText = 'KO';
+      showSystemAlert("음성 인식 언어가 한국어로 설정되었습니다.", "success");
+    }
+  }
+}
+
+// Real-time Free Translator API (Uses MyMemory API, 0 Gemini tokens consumed!)
+async function callFreeTranslateApi(text, direction) {
+  let langpair = "";
+  if (direction === 'ko-to-target') {
+    langpair = currentLang === 'en' ? 'ko|en' : 'ko|ja';
+  } else {
+    langpair = currentLang === 'en' ? 'en|ko' : 'ja|ko';
+  }
+
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${langpair}`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    if (data.responseData && data.responseData.translatedText) {
+      // Decode HTML entities if returned
+      const parser = new DOMParser();
+      const decodedText = parser.parseFromString(data.responseData.translatedText, 'text/html').body.textContent;
+      return decodedText;
+    } else {
+      throw new Error("Translation content not found in response.");
+    }
+  } catch (err) {
+    console.error("Free Translation API Error, falling back to Google Translate web link:", err);
+    const targetLangCode = currentLang === 'en' ? 'en' : 'ja';
+    const sourceLang = direction === 'ko-to-target' ? 'ko' : targetLangCode;
+    const targetLang = direction === 'ko-to-target' ? targetLangCode : 'ko';
+    const fallbackUrl = `https://translate.google.com/?sl=${sourceLang}&tl=${targetLang}&text=${encodeURIComponent(text)}&op=translate`;
+    return `[무료 API 호출 한계 초과 등으로 번역 실패]\n대신 아래 구글 번역 링크를 클릭하여 확인하실 수 있습니다:\n\n👉 구글 번역에서 보기: ${fallbackUrl}`;
   }
 }

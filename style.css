@@ -445,11 +445,201 @@ html, body {
   cursor: not-allowed;
 }
 
+.btn-mic {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.btn-mic:hover {
+  background: var(--accent-light);
+  color: var(--text-primary);
+}
+
+.btn-mic.recording {
+  background: #ef4444;
+  color: #ffffff;
+  animation: mic-pulse 1.5s infinite ease-in-out;
+}
+
+.btn-mic:disabled {
+  background: transparent;
+  color: var(--border-color);
+  cursor: not-allowed;
+}
+
+.btn-mic-lang {
+  background: var(--accent-light);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+  font-weight: 700;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.btn-mic-lang:hover {
+  background: var(--accent-color);
+  color: #ffffff;
+}
+
+.btn-mic-lang:disabled {
+  background: transparent;
+  color: var(--border-color);
+  cursor: not-allowed;
+}
+
+@keyframes mic-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
 .input-hint {
   font-size: 0.65rem;
   color: var(--text-muted);
   margin-top: 0.35rem;
   text-align: left;
+}
+
+/* Real-time Translator styles */
+.translator-panel {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.translator-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.translator-select {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  padding: 0.15rem 0.3rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.translator-input {
+  width: 100%;
+  height: 60px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  resize: none;
+  outline: none;
+  transition: var(--transition-smooth);
+}
+
+.translator-input:focus {
+  border-color: var(--border-focus);
+}
+
+.btn-translate {
+  background: var(--accent-color);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.btn-translate:hover {
+  opacity: 0.9;
+}
+
+.btn-translate:disabled {
+  background: var(--border-color);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.translator-result-container {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  background: var(--bg-primary);
+  border-left: 3px solid var(--accent-color);
+  padding: 0.5rem;
+  border-radius: 0 6px 6px 0;
+  gap: 0.5rem;
+}
+
+.translator-result {
+  flex: 1;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-primary);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.btn-icon-small {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  flex-shrink: 0;
+}
+
+.btn-icon-small:hover {
+  background: var(--accent-light);
+  color: var(--text-primary);
 }
 
 /* Sidebar Vocabulary Box (Right Column) */

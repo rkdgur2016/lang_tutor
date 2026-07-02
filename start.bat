@@ -2,14 +2,14 @@
 chcp 65001 > nul
 setlocal enabledelayedexpansion
 
-set ENV_FILE=.env
+set ENV_FILE=%~dp0.env
 set KEY_FOUND=0
 
 if exist "%ENV_FILE%" (
     for /f "usebackq tokens=1,2 delims==" %%A in ("%ENV_FILE%") do (
         set "KEY_NAME=%%A"
         set "KEY_VAL=%%B"
-        :: Strip spaces
+        rem Strip spaces
         for /f "tokens=*" %%x in ("!KEY_NAME!") do set "KEY_NAME=%%x"
         if "!KEY_NAME!"=="GEMINI_API_KEY" (
             if not "!KEY_VAL!"=="" (
@@ -31,7 +31,7 @@ if "%KEY_FOUND%"=="0" (
     set /p USER_KEY="Gemini API Key: "
     
     if not "!USER_KEY!"=="" (
-        :: Strip spaces from user input
+        rem Strip spaces from user input
         for /f "tokens=*" %%x in ("!USER_KEY!") do set "USER_KEY=%%x"
         
         if exist "%ENV_FILE%" (

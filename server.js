@@ -157,11 +157,16 @@ app.get('/api/vocab/:lang/csv', (req, res) => {
         : stringified;
     };
 
+    const formatRubyForTxt = (text) => {
+      if (!text) return '';
+      return String(text).replace(/<ruby>([\s\S]*?)<rt>([\s\S]*?)<\/rt><\/ruby>/gi, '$1($2)');
+    };
+
     const row = [
       escapeCsv(item.korean),
-      escapeCsv(item.translated),
+      escapeCsv(formatRubyForTxt(item.translated)),
       escapeCsv(item.pronunciation),
-      escapeCsv(item.example),
+      escapeCsv(formatRubyForTxt(item.example)),
       escapeCsv(item.createdAt || '')
     ].join(',');
 

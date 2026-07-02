@@ -4,6 +4,7 @@ let apiKeyState = '';
 let vocabularyCache = []; // Live cache for vocab items
 let isBackendConnected = false; // Check if backend is active
 let totalSessionTokens = 0; // Active session token accumulator
+let showRubyPronunciation = true; // State for showing Kanji pronunciation (ruby tags)
 
 // Speech Recognition State
 let recognition = null;
@@ -38,6 +39,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize Lucide Icons
   lucide.createIcons();
   
+  // Load ruby pronunciation setting
+  const savedRuby = localStorage.getItem('lingotutor_show_ruby');
+  if (savedRuby !== null) {
+    showRubyPronunciation = savedRuby === 'true';
+  }
+  updateRubyToggleUI();
+
   // Check if we are running from the backend server
   await checkBackendStatus();
 
@@ -257,6 +265,16 @@ function setupEventListeners() {
 
   // Download Chat History Event
   btnDownloadChat.addEventListener('click', handleDownloadChat);
+
+  // Toggle ruby pronunciation guide
+  const btnToggleRuby = document.getElementById('btnToggleRuby');
+  if (btnToggleRuby) {
+    btnToggleRuby.addEventListener('click', () => {
+      showRubyPronunciation = !showRubyPronunciation;
+      localStorage.setItem('lingotutor_show_ruby', showRubyPronunciation);
+      updateRubyToggleUI();
+    });
+  }
 }
 
 function openSettingsModal() {
@@ -373,7 +391,7 @@ function renderVocabularyUI() {
     
     const word = document.createElement('span');
     word.className = 'vocab-word';
-    word.innerText = item.translated;
+    word.innerHTML = renderRubyTags(item.translated);
     header.appendChild(word);
     
     const pron = document.createElement('span');
@@ -391,7 +409,7 @@ function renderVocabularyUI() {
     if (item.example) {
       const example = document.createElement('div');
       example.className = 'vocab-example';
-      example.innerText = item.example;
+      example.innerHTML = renderRubyTags(item.example);
       card.appendChild(example);
     }
     
@@ -489,7 +507,7 @@ function initWelcomeMessage() {
     });
   } else {
     initialMsg = JSON.stringify({
-      reply: "こんにちは！日本語のチューターです。今日はどんな一日でしたか？日記や話したいことを自由に書いてみてください。分からない単語は韓国語（例：[사과]、もしくは普通に韓国語）で書いてもらえば、私が整理しますよ！",
+      reply: "こんにちは！日本語(にほんご/니혼고) 튜터입니다. 오늘 있었던 일이나 하고 싶은 이야기를 자유롭게 일본어와 한국어를 섞어가며 써보세요. 모르는 단어는 한국어로 써 주시면 제가 정리(せいり/세이리)해 드릴게요! 오늘(きょう/쿄우)은 어떤 하루(いちにち/이치니치)를 보내셨나요?",
       corrections: [],
       vocabulary: []
     });
@@ -531,9 +549,9 @@ function handleExportCsv() {
 
         const row = [
           escapeCsv(item.korean),
-          escapeCsv(item.translated),
+          escapeCsv(formatRubyForTxt(item.translated)),
           escapeCsv(item.pronunciation),
-          escapeCsv(item.example)
+          escapeCsv(formatRubyForTxt(item.example))
         ].join(',');
 
         csvContent += row + '\n';
@@ -582,6 +600,36 @@ function showSystemAlert(message, type) {
   }, 3000);
 }
 
+// Helper to convert Kanji(Furigana/Korean) or HTML ruby tags to HTML ruby elements
+function renderRubyTags(text) {
+  if (!text) return "";
+  
+  // 1. Create a safe HTML escaped version of the text
+  const tempDiv = document.createElement('div');
+  tempDiv.innerText = text;
+  let html = tempDiv.innerHTML;
+  
+  // 2. Restore any raw <ruby> / <rt> tags safely if they were generated/used
+  html = html.replace(/&lt;ruby&gt;/gi, '<ruby>')
+             .replace(/&lt;\/ruby&gt;/gi, '</ruby>')
+             .replace(/&lt;rt&gt;/gi, '<rt>')
+             .replace(/&lt;\/rt&gt;/gi, '</rt>');
+             
+  // 3. Convert Kanji(Pronunciation) patterns to ruby tags
+  // Matches Kanji characters followed by parentheses containing pronunciation
+  const kanjiRegex = /([\u4e00-\u9faf々〆]+)[(（]([^)）]+)[)）]/g;
+  html = html.replace(kanjiRegex, '<ruby>$1<rt>$2</rt></ruby>');
+  
+  return html;
+}
+
+// Helper to convert ruby tags back to text representation for txt/csv downloads
+function formatRubyForTxt(text) {
+  if (!text) return '';
+  let formatted = text.replace(/<ruby>([\s\S]*?)<rt>([\s\S]*?)<\/rt><\/ruby>/gi, '$1($2)');
+  return formatted;
+}
+
 // Render entire chat list from memory
 function renderChatHistory() {
   messagesContainer.innerHTML = '';
@@ -592,7 +640,7 @@ function renderChatHistory() {
     return;
   }
 
-  history.forEach((msg) => {
+  history.forEach((msg, idx) => {
     const isUser = msg.role === 'user';
     const textContent = msg.parts[0].text;
     
@@ -613,12 +661,113 @@ function renderChatHistory() {
     if (isUser) {
       textNode.innerText = textContent;
       contentNode.appendChild(textNode);
+      
+      // Memo note area
+      const noteArea = document.createElement('div');
+      noteArea.className = 'user-note-area';
+      
+      const hasNote = msg.note && msg.note.trim() !== "";
+      
+      // Display block
+      const displayDiv = document.createElement('div');
+      displayDiv.className = 'user-note-display';
+      displayDiv.style.display = hasNote ? 'flex' : 'none';
+      
+      const noteText = document.createElement('span');
+      noteText.className = 'user-note-text';
+      noteText.innerText = `📝 ${msg.note || ""}`;
+      displayDiv.appendChild(noteText);
+      
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn-edit-note';
+      editBtn.title = '메모 수정/삭제';
+      editBtn.innerHTML = `<i data-lucide="pencil" style="width: 11px; height: 11px;"></i>`;
+      displayDiv.appendChild(editBtn);
+      
+      noteArea.appendChild(displayDiv);
+
+      // Add/Edit button trigger
+      const addBtn = document.createElement('button');
+      addBtn.className = 'user-note-trigger';
+      addBtn.style.display = hasNote ? 'none' : 'inline-flex';
+      addBtn.innerHTML = `<i data-lucide="pencil" style="width: 11px; height: 11px;"></i> 메모 작성`;
+      noteArea.appendChild(addBtn);
+
+      // Editor block
+      const editorDiv = document.createElement('div');
+      editorDiv.className = 'user-note-editor';
+      editorDiv.style.display = 'none';
+      
+      const noteInput = document.createElement('input');
+      noteInput.type = 'text';
+      noteInput.className = 'user-note-input';
+      noteInput.placeholder = '알게 된 단어나 피드백 메모...';
+      noteInput.value = msg.note || "";
+      editorDiv.appendChild(noteInput);
+      
+      const buttonsDiv = document.createElement('div');
+      buttonsDiv.className = 'user-note-buttons';
+      
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn-save-note';
+      saveBtn.innerText = '저장';
+      buttonsDiv.appendChild(saveBtn);
+      
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn-cancel-note';
+      cancelBtn.innerText = '취소';
+      buttonsDiv.appendChild(cancelBtn);
+      
+      editorDiv.appendChild(buttonsDiv);
+      noteArea.appendChild(editorDiv);
+
+      // Toggle editor functions
+      const startEditing = () => {
+        displayDiv.style.display = 'none';
+        addBtn.style.display = 'none';
+        editorDiv.style.display = 'flex';
+        noteInput.focus();
+      };
+
+      const stopEditing = () => {
+        editorDiv.style.display = 'none';
+        if (msg.note && msg.note.trim() !== "") {
+          displayDiv.style.display = 'flex';
+          addBtn.style.display = 'none';
+        } else {
+          displayDiv.style.display = 'none';
+          addBtn.style.display = 'inline-flex';
+        }
+      };
+
+      // Find the index of this message in getChatHistory()
+      const msgIdx = idx;
+
+      addBtn.addEventListener('click', startEditing);
+      editBtn.addEventListener('click', startEditing);
+      cancelBtn.addEventListener('click', stopEditing);
+      
+      saveBtn.addEventListener('click', () => {
+        const newNote = noteInput.value.trim();
+        updateMessageNote(msgIdx, newNote);
+      });
+      
+      noteInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const newNote = noteInput.value.trim();
+          updateMessageNote(msgIdx, newNote);
+        } else if (e.key === 'Escape') {
+          stopEditing();
+        }
+      });
+      
+      contentNode.appendChild(noteArea);
     } else {
       try {
         const parsed = JSON.parse(textContent);
         
         // 1. Reply in target language
-        textNode.innerText = parsed.reply || "";
+        textNode.innerHTML = renderRubyTags(parsed.reply || "");
         contentNode.appendChild(textNode);
 
         // 2. Action Buttons (Translation & TTS Audio)
@@ -683,18 +832,18 @@ function renderChatHistory() {
             
             const originalDiv = document.createElement('div');
             originalDiv.className = 'original';
-            originalDiv.innerText = `✍️ ${corr.original}`;
+            originalDiv.innerHTML = `✍️ ${renderRubyTags(corr.original)}`;
             item.appendChild(originalDiv);
             
             const fixedDiv = document.createElement('div');
             fixedDiv.className = 'fixed';
-            fixedDiv.innerText = `✨ ${corr.corrected}`;
+            fixedDiv.innerHTML = `✨ ${renderRubyTags(corr.corrected)}`;
             item.appendChild(fixedDiv);
             
             if (corr.explanation) {
               const explainDiv = document.createElement('div');
               explainDiv.className = 'explain';
-              explainDiv.innerText = corr.explanation;
+              explainDiv.innerHTML = renderRubyTags(corr.explanation);
               item.appendChild(explainDiv);
             }
             
@@ -704,7 +853,7 @@ function renderChatHistory() {
           contentNode.appendChild(correctionBlock);
         }
       } catch (e) {
-        textNode.innerText = textContent;
+        textNode.innerHTML = renderRubyTags(textContent);
         contentNode.appendChild(textNode);
       }
     }
@@ -717,6 +866,42 @@ function renderChatHistory() {
   lucide.createIcons();
 }
 
+// Update note content of a specific message in chat history
+function updateMessageNote(idx, noteText) {
+  const history = getChatHistory();
+  if (history[idx]) {
+    if (noteText && noteText.trim() !== "") {
+      history[idx].note = noteText;
+    } else {
+      delete history[idx].note;
+    }
+    saveChatHistory(history);
+    renderChatHistory();
+  }
+}
+
+// Toggle Ruby pronunciation visibility in the chat container
+function updateRubyToggleUI() {
+  const messagesContainer = document.getElementById('messagesContainer');
+  const btnToggleRuby = document.getElementById('btnToggleRuby');
+  
+  if (showRubyPronunciation) {
+    if (messagesContainer) messagesContainer.classList.add('show-ruby');
+    if (btnToggleRuby) {
+      btnToggleRuby.classList.add('active');
+      btnToggleRuby.title = "한자 발음 숨기기";
+      btnToggleRuby.style.color = "var(--accent-color)";
+    }
+  } else {
+    if (messagesContainer) messagesContainer.classList.remove('show-ruby');
+    if (btnToggleRuby) {
+      btnToggleRuby.classList.remove('active');
+      btnToggleRuby.title = "한자 발음 보기";
+      btnToggleRuby.style.color = "";
+    }
+  }
+}
+
 // Generate the System Prompt based on selected language
 function getSystemPrompt() {
   if (currentLang === 'en') {
@@ -725,7 +910,9 @@ The user is learning English. They will write their daily diary entries or descr
 Sometimes they will put Korean words/sentences they don't know in single quotes like '사과', double quotes like "사과", brackets like '[사과]', or naturally mix Korean words in their sentences because they don't know the English equivalent.
 
 Your tasks are:
-1. Respond to the user naturally in friendly English. Keep your reply simple, supportive, and active. You MUST always end your response with an engaging, friendly follow-up question related to the user's topic so that the conversation continues naturally.
+1. Respond to the user naturally in friendly English. Keep your reply simple, supportive, and active. 
+   - CRITICAL: Keep your conversational response (reply) concise, strictly within 2 to 3 sentences, to keep the conversation light and easy to read.
+   - You MUST always end your response with an engaging, friendly follow-up question related to the user's topic so that the conversation continues naturally.
 2. Provide a Korean translation of your English response (reply) so the user can crosscheck if they cannot understand.
 3. Look at their input. If there are grammatical errors, typos, unnatural phrasing, or if they have written Korean words/sentences wrapped in quotes (' ' or " ") because they don't know them, you MUST provide corrections. Even if the rest of the sentence is grammatically correct, treat any sentence containing quoted Korean words as needing correction. For each quoted Korean expression, you MUST explain in the "explanation" field: "'[한글 표현]'은(는) 영어로 '[영어 번역 표현]'라고 표현합니다." (e.g., "'맛집'은 영어로 'popular restaurant' 또는 'famous restaurant'라고 표현합니다.")
 4. Automatically translate any Korean words (whether they are in single quotes like '단어', double quotes like "단어", brackets like [단어], or naturally written in the text) into English. Provide:
@@ -751,7 +938,7 @@ JSON Schema:
       "korean": "Korean word",
       "translated": "English translation",
       "pronunciation": "Phonetics in Korean",
-      "example": "Simple example sentence using the word"
+      "example": "Simple example sentence using the translated word"
     }
   ]
 }`;
@@ -762,36 +949,41 @@ They will write their daily diary entries or describe what they did today.
 Sometimes they will put Korean words/sentences they don't know in single quotes like '사과', double quotes like "사과", brackets like '[사과]', or naturally mix Korean words in their sentences because they don't know the Japanese equivalent.
 
 Your tasks are:
-1. Respond to the user naturally in polite, friendly Japanese (using polite forms: です/ます). Keep your reply simple, natural, and friendly. You MUST always end your response with an engaging, easy-to-answer follow-up question in Japanese so that the user is encouraged to reply back and keep the conversation going.
+1. Respond to the user naturally in polite, friendly Japanese (using polite forms: です/ます). Keep your reply simple, natural, and friendly. 
+   - CRITICAL: Keep your conversational response (reply) concise, strictly within 2 to 3 sentences, to prevent the user from being overwhelmed by long text.
+   - CRITICAL: Since the user is learning Japanese, if there are Kanji (한자) characters in your response ("reply"), you MUST append their pronunciation in parentheses immediately after each Kanji word. Format it as: Kanji(Furigana/Korean pronunciation). For example: 今日(きょう/쿄우), 勉強(べんきょう/벤쿄우), 日本語(にほんご/니혼고). Do this for ALL Kanji characters in the "reply" so that the user can read and pronounce them easily.
+   - You MUST always end your response with an engaging, easy-to-answer follow-up question in Japanese, also formatting any Kanji with pronunciation.
 2. Provide a Korean translation of your Japanese response (reply) so the user can crosscheck if they cannot understand.
-3. Look at their input. If there are grammatical errors, typos, unnatural/stiff/textbook phrasing, or if they have written Korean words/sentences wrapped in quotes (' ' or " ") because they don't know them, you MUST provide corrections. Even if the user's sentence is grammatically correct, if it sounds textbookish, stiff, or unnatural for daily conversation, correct it to natural daily-life conversational expressions that native Japanese speakers actually use (일본인들이 일상생활에서 실제로 사용하는 자연스럽고 구어체적인 회화 표현). For each correction, explain in the "explanation" field in Korean:
-   - Why the original was unnatural or textbookish.
-   - The nuances of the suggested daily-life conversational expression.
-   - For quoted Korean words: "'[한글 표현]'은(는) 일본어 일상 회화에서 '[일본어 번역 표현]'라고 표현합니다." (e.g., "'점심'은 일본어로 'お昼(ひる)' 또는 'ランチ'라고 표현합니다.")
+3. Look at their input. If there are grammatical errors, typos, unnatural/stiff/textbook phrasing, or if they have written Korean words/sentences wrapped in quotes (' ' or " ") because they don't know them, you MUST provide corrections. Even if the user's sentence is grammatically correct, if it sounds textbookish, stiff, or unnatural for daily conversation, correct it to natural daily-life conversational expressions that native Japanese speakers actually use (일본인들이 일상생활에서 실제로 사용하는 자연스럽고 구어체적인 회화 표현).
+   - CRITICAL: For the corrected Japanese sentences in "corrected", you MUST also format any Kanji with their pronunciation in parentheses, e.g., 散歩(さんぽ/산포).
+   - For each correction, explain in the "explanation" field in Korean:
+      - Why the original was unnatural or textbookish.
+      - The nuances of the suggested daily-life conversational expression.
+      - For quoted Korean words: "'[한글 표현]'은(는) 일본어 일상 회화에서 '[일본어 번역 표현]'라고 표현합니다." (e.g., "'점심'은 일본어로 'お昼(ひる/오히루)' 또는 'ランチ'라고 표현합니다.")
 4. Automatically translate any Korean words (whether they are in single quotes like '단어', double quotes like "단어", brackets like [단어], or naturally written in the text) into Japanese. Provide:
    - "korean": The original Korean word (remove quotes or brackets if present, e.g., '사과' -> 사과)
-   - "translated": The translated Japanese word (using appropriate Kanji/Kana)
-   - "pronunciation": The Furigana (Hiragana) and its Korean phonetic spelling (e.g., りんご [링고], さんぽ [산포])
-   - "example": A simple Japanese example sentence using the translated word. (Include Hiragana reading inside parentheses for Kanji, like "公園(こうえん)을 散歩(さんぽ)しました")
+   - "translated": The translated Japanese word (using appropriate Kanji/Kana). If it contains Kanji, append its Furigana/Korean pronunciation in parentheses, e.g., 散歩(さんぽ/산포).
+   - "pronunciation": The Furigana (Hiragana) and its Korean phonetic spelling (e.g., りんご [링고], 散歩 [산포])
+   - "example": A simple Japanese example sentence using the translated word. You MUST include Furigana and Korean pronunciation inside parentheses for Kanji, like "公園(こうえん/코우엔)을 散歩(さん포/산포)했습니다".
 
 You MUST respond strictly in a valid JSON object matching the JSON schema below. DO NOT include any markdown code blocks outside of the raw JSON.
 JSON Schema:
 {
-  "reply": "Your conversational response in Japanese ending with a question",
+  "reply": "Your conversational response in Japanese (Kanji formatted with pronunciation: Kanji(Furigana/Korean pronunciation)) ending with a question",
   "translation": "Literal Korean translation of your Japanese reply",
   "corrections": [
     {
       "original": "unnatural, stiff, textbookish, or incorrect sentence from user (including the Korean words in quotes)",
-      "corrected": "corrected natural daily-life conversational Japanese sentence",
+      "corrected": "corrected natural daily-life conversational Japanese sentence (Kanji formatted with pronunciation: Kanji(Furigana/Korean pronunciation))",
       "explanation": "Detailed explanation of why the correction is more natural in daily conversation, and translations in Korean (e.g., \"이 표현은 문법적으로는 맞지만, 일본인들이 일상 회화에서는 'お昼'나 'ランチ'라는 표현을 훨씬 더 자주 씁니다. ...\")"
     }
   ],
   "vocabulary": [
     {
       "korean": "Korean word",
-      "translated": "Japanese translation",
+      "translated": "Japanese translation (with Kanji pronunciation in parentheses if applicable)",
       "pronunciation": "Furigana & Korean pronunciation",
-      "example": "Simple example sentence with Kanji pronunciation guide"
+      "example": "Simple example sentence with Kanji pronunciation guide in parentheses"
     }
   ]
 }`;
@@ -947,14 +1139,17 @@ function playTts(text, langCode) {
   // Preprocess text to strip contents inside parentheses (e.g. 公園(こうえん) -> 公園)
   // This avoids TTS spelling out the Hiragana/Furigana helper readings.
   let cleanText = text;
+  // Strip HTML ruby tags and keep only the base text
+  cleanText = cleanText.replace(/<ruby>([\s\S]*?)<rt>[\s\S]*?<\/rt><\/ruby>/gi, '$1');
+
   if (langCode === 'ja') {
-    cleanText = text
+    cleanText = cleanText
       .replace(/\([^\)]*\)/g, '')    // Remove standard brackets (こうえん)
       .replace(/（[^）]*）/g, '')    // Remove Japanese full-width brackets （こうえん）
       .replace(/\[[^\]]*\]/g, '');   // Remove square brackets [단어]
   } else {
     // English cleanup for translations or bracket explanations
-    cleanText = text.replace(/\[[^\]]*\]/g, '');
+    cleanText = cleanText.replace(/\[[^\]]*\]/g, '');
   }
 
   const utterance = new SpeechSynthesisUtterance(cleanText);
@@ -1044,28 +1239,32 @@ function handleDownloadChat() {
     
     if (isUser) {
       fileContent += `[나] ---------------------------------------------\n`;
-      fileContent += `${msg.parts[0].text}\n\n`;
+      fileContent += `${msg.parts[0].text}\n`;
+      if (msg.note) {
+        fileContent += `📝 메모: ${msg.note}\n`;
+      }
+      fileContent += `\n`;
     } else {
       fileContent += `[AI 튜터 🤖] --------------------------------------\n`;
       try {
         const parsed = JSON.parse(msg.parts[0].text);
         
         // 1. Reply
-        fileContent += `${parsed.reply || ""}\n\n`;
+        fileContent += `${formatRubyForTxt(parsed.reply || "")}\n\n`;
         
         // 2. Translation
         if (parsed.translation) {
-          fileContent += `* 한국어 번역:\n  ${parsed.translation}\n\n`;
+          fileContent += `* 한국어 번역:\n  ${formatRubyForTxt(parsed.translation)}\n\n`;
         }
 
         // 3. Corrections
         if (parsed.corrections && parsed.corrections.length > 0) {
           fileContent += `* 문법 교정 및 피드백:\n`;
           parsed.corrections.forEach(corr => {
-            fileContent += `  - 원래 문장: ${corr.original}\n`;
-            fileContent += `  - 교정 문장: ${corr.corrected}\n`;
+            fileContent += `  - 원래 문장: ${formatRubyForTxt(corr.original)}\n`;
+            fileContent += `  - 교정 문장: ${formatRubyForTxt(corr.corrected)}\n`;
             if (corr.explanation) {
-              fileContent += `  - 설명: ${corr.explanation}\n`;
+              fileContent += `  - 설명: ${formatRubyForTxt(corr.explanation)}\n`;
             }
             fileContent += `\n`;
           });
@@ -1075,9 +1274,9 @@ function handleDownloadChat() {
         if (parsed.vocabulary && parsed.vocabulary.length > 0) {
           fileContent += `* 오늘 등장한 추천 단어:\n`;
           parsed.vocabulary.forEach(vocab => {
-            fileContent += `  - ${vocab.translated} (${vocab.korean}) ${vocab.pronunciation ? `[${vocab.pronunciation}]` : ''}\n`;
+            fileContent += `  - ${formatRubyForTxt(vocab.translated)} (${vocab.korean}) ${vocab.pronunciation ? `[${vocab.pronunciation}]` : ''}\n`;
             if (vocab.example) {
-              fileContent += `    예문: ${vocab.example}\n`;
+              fileContent += `    예문: ${formatRubyForTxt(vocab.example)}\n`;
             }
           });
           fileContent += `\n`;
@@ -1085,7 +1284,7 @@ function handleDownloadChat() {
 
       } catch (e) {
         // Fallback for raw text response
-        fileContent += `${msg.parts[0].text}\n\n`;
+        fileContent += `${formatRubyForTxt(msg.parts[0].text)}\n\n`;
       }
       fileContent += `==================================================\n\n`;
     }
